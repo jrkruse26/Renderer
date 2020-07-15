@@ -1,0 +1,5 @@
+costs:
+p3.16xlarge - $0.9087 - 445s
+p3.8xlarge - $0.7378 - 723s
+p3.2xlarge - $0.6608 - 2591s
+c5.24xlarge - like $3 - ~3 hours

@@ -1,7 +1,11 @@
 import boto3
 import time
 import os
-import subprocess
+import sys
+import paramiko
+from tkinter import Tk
+from tkinter.filedialog import askopenfilenames
+
 
 def spot_start(instancetype):
 
@@ -11,9 +15,8 @@ def spot_start(instancetype):
 
     image = None
     for ami in response['Images']:
-        if ami['Name'] == 'GPU Render':
+        if ami['Name'] == 'Auto GPU Render':
             image = ami
-
 
     response = ec2_client.request_spot_instances(
         DryRun=False,
@@ -67,6 +70,9 @@ def stop_instance():
             ec2_client.terminate_instances(InstanceIds=[inst_id])
 
 
+Tk().withdraw()  # we don't want a full GUI, so keep the root window from appearing
+blendfile = askopenfilenames(filetypes=[('Blender', '.blend'), ('Other', '*')])
+
 ec2_client = boto3.client('ec2', region_name='us-east-2')
 items = ec2_client.describe_instances()
 ip = None
@@ -77,6 +83,7 @@ for instance in items['Reservations']:
         'KeyName'] == 'GPURenderer':
         instance_id = instance['Instances'][0]['InstanceId']
 zone = None
+start = time.time()
 if instance_id is None:
     spot_start(instancetype)
     while instance_id is None:
@@ -86,18 +93,52 @@ if instance_id is None:
     ip = instance['Reservations'][0]['Instances'][0][
         'PublicIpAddress']
     zone = instance['Reservations'][0]['Instances'][0]['Placement']['AvailabilityZone']
-    print(ip)
 
 price = ec2_client.describe_spot_price_history(InstanceTypes=[instancetype],MaxResults=1,ProductDescriptions=['Linux/UNIX (Amazon VPC)'],AvailabilityZone=zone)
-print('Current Cost of ${}/hr'.format(price['SpotPriceHistory'][0]['SpotPrice']))
+cost = price['SpotPriceHistory'][0]['SpotPrice']
+print('Current Cost of ${}/hr'.format(cost))
 
-time.sleep(25)
-if os.system == 'nt':
-    subprocess.Popen(['C:\\Program Files (x86)\\WinSCP\\WinSCP.exe','sftp://ubuntu@{}'.format(ip), '/privatekey=C:\\Users\\Jordan\\Documents\\Renderer\\GPURenderer.ppk','/hostkey=*'])
-    subprocess.Popen(['C:\\Program Files\\TurboVNC\\vncviewer.exe','{}:1'.format(ip)])
-else:
-    os.system('ssh -i "GPURenderer.pem" ubuntu@{}'.format(ip))
+ssh_client = paramiko.SSHClient()
+ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+key = paramiko.RSAKey.from_private_key_file('GPURenderer.pem')
 
-input('Press Enter to Shutdown')
+connect = True
+while connect:
+    try:
+        ssh_client.connect(hostname=ip, username='ubuntu', pkey=key, timeout=2)
+        connect = False
+        print('Connection on {}'.format(ip))
+    except Exception as e:
+        pass
+
+sftp = ssh_client.open_sftp()
+
+filenames = []
+for file in blendfile:
+    filename = os.path.basename(file)
+    filenames.append(filename)
+    print('Uploading {}'.format(filename))
+    sftp.put(file, 'input/{}'.format(filename))
+
+for file in filenames:
+    print('Processing {}'.format(file))
+    name = file.split('.')
+    cmd = "./blender.sh \'{}\' \'{}\'".format(file, name[0])
+    stdin, stdout, stderr = ssh_client.exec_command(cmd)
+    stdin.close()
+    for line in iter(lambda: stdout.readline(2048), ""):
+        print(line, end="")
+
+outputs = sftp.listdir('/home/ubuntu/output')
+for output in outputs:
+    print('Downloading {}'.format(output))
+    sftp.get('/home/ubuntu/output/{}'.format(output), './outputs/{}'.format(output))
+
 stop_instance()
-
+print('Shutting Down')
+end = time.time()
+runtime = end - start
+runcost = (float(runtime)/3600) * float(cost)
+print('Total Run Cost of ${0:.4f}'.format(runcost))
+print('Total Run Time of {} seconds'.format(runtime))
+input('Press Enter to Exit')

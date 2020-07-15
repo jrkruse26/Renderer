@@ -4,6 +4,7 @@ __pycache__/
 # Environments
 .env
 .venv
+.idea
 env/
 venv/
 ENV/
@@ -13,3 +14,6 @@ venv.bak/
 # Private keys
 *.ppk
 *.pem
+
+# Output Files
+outputs/

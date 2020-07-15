@@ -1,1 +1,1 @@
-blender -b file.blend -E CYCLES -t 0 -o //output/file -P script.py
+blender -b "/home/ubuntu/input/$1" -E CYCLES -t 0 -o "/home/ubuntu/output/$2" -P script.py
